@@ -46,25 +46,25 @@ func init() {
 }
 //add new item
 func AddItem(c *gin.Context) {
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+    var ctx, cancel = context.WithCancel(context.Background())
+    defer cancel()
 
-	var item models.Item
-	_ = json.NewDecoder(c.Request.Body).Decode(&item)
+    var item models.Item
 
-	if err := c.BindJSON(&item); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
+    if err := c.BindJSON(&item); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
 
-	_, insertErr := itemsCollection.InsertOne(ctx, item)
+    _, insertErr := itemsCollection.InsertOne(ctx, item)
 
-	if insertErr != nil {
+    if insertErr != nil {
+		log.Println("Error inserting item:", insertErr)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error while inserting item", "message": insertErr.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, item)
+    c.JSON(http.StatusOK, item)
 }
 //get all items
 func GetItems(c *gin.Context) {
@@ -108,31 +108,37 @@ func GetItemById(c *gin.Context) {
 }
 //update item by id
 func UpdateItemById(c *gin.Context) {
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+    var ctx, cancel = context.WithCancel(context.Background())
+    defer cancel()
 
-	id, _ := primitive.ObjectIDFromHex(c.Param("id"))
+    id, err := primitive.ObjectIDFromHex(c.Param("id"))
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID format"})
+        return
+    }
 
-	var item models.Item
-	_ = json.NewDecoder(c.Request.Body).Decode(&item)
+    var item models.Item
+    if err := c.BindJSON(&item); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
 
-	if err := c.BindJSON(&item); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
+    update := bson.M{
+        "$set": item,
+    }
 
-	update := bson.M{
-		"$set": item,
-	}
+    result, err := itemsCollection.UpdateOne(ctx, bson.M{"_id": id}, update)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Error while updating item by id", "message": err.Error()})
+        return
+    }
 
-	_, err := itemsCollection.UpdateOne(ctx, bson.M{"_id": id}, update)
+    if result.ModifiedCount == 0 {
+        c.JSON(http.StatusNotFound, gin.H{"error": "Item not found"})
+        return
+    }
 
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error while updating item by id", "message": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, item)
+    c.JSON(http.StatusOK, item)
 }
 //delete item by id
 func DeleteItemById(c *gin.Context) {

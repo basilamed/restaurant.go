@@ -8,7 +8,7 @@ import (
 func SetupRouter() *gin.Engine {
 	router := gin.Default()
 
-	authorized := router.Group("/api")
+	authorized := router.Group("/show")
 	{
 		authorized.GET("/items/getAll", controllers.GetItems)
 		authorized.POST("/items/addItem", controllers.AddItem)
