@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"items/models"
 	"log"
 	"net/http"
 	"os"
-	"items/models"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -167,27 +168,27 @@ func DeleteItemById(c *gin.Context) {
 }
 //message consumer
 func StartMessageConsumer() {
-	fmt.Println("Message consumer started")
+    fmt.Println("Message consumer started")
 
-	connectionString := os.Getenv("RABBITMQ_CONNECTION_STRING")
-	connection, err := amqp.Dial(connectionString)
+    connectionString := os.Getenv("RABBITMQ_CONNECTION_STRING")
+    connection, err := amqp.Dial(connectionString)
 
-	if err != nil {
-		log.Fatalf("%s: %s", "Failed to connect to RabbitMQ", err)
-	}
+    if err != nil {
+        log.Fatalf("%s: %s", "Failed to connect to RabbitMQ", err)
+    }
 
-	defer connection.Close()
+    defer connection.Close()
 
-	channel, err := connection.Channel()
+    channel, err := connection.Channel()
 
-	if err != nil {
-		log.Fatalf("%s: %s", "Failed to open a channel", err)
-	}
+    if err != nil {
+        log.Fatalf("%s: %s", "Failed to open a channel", err)
+    }
 
-	defer channel.Close()
+    defer channel.Close()
 
-	queue, err := channel.QueueDeclare(
-        "items",
+    queue, err := channel.QueueDeclare(
+        "orders",
         false,
         false,
         false,
@@ -198,7 +199,7 @@ func StartMessageConsumer() {
         log.Fatalf("Failed to declare a queue: %v", err)
     }
 
-	messages, err := channel.Consume(
+    messages, err := channel.Consume(
         queue.Name,
         "",
         true,
@@ -208,22 +209,46 @@ func StartMessageConsumer() {
         nil,
     )
 
-	if err != nil {
-		log.Fatalf("%s: %s", "Failed to register a consumer", err)
-	}
+    if err != nil {
+        log.Fatalf("%s: %s", "Failed to register a consumer", err)
+    }
 
-	for mesage := range messages {
-        log.Printf("Received a message: %s", mesage.Body)
+    for message := range messages {
+        log.Printf("Received a message: %s", message.Body)
 
-        var message models.Message
-        if err := json.Unmarshal(mesage.Body, &message); err != nil {
+        var order models.Message
+        if err := json.Unmarshal(message.Body, &order); err != nil {
             log.Printf("Error decoding message: %v", err)
             continue
         }
+
+        orderItems := strings.Split(order.OrderItems, ",")
+
+		for _, itemName := range orderItems {
+			var item models.Item
+			err := itemsCollection.FindOne(context.TODO(), bson.M{"name": itemName}).Decode(&item)
+			if err != nil {
+				log.Printf("Error retrieving item: %v", err)
+				continue
+			}
+	
+			item.AvailableUnits -= 1
+	
+			if item.AvailableUnits < 0 {
+				log.Printf("Warning: Item '%s' has negative available units", itemName)
+			}
+	
+			update := bson.M{
+				"$set": bson.M{"availableUnits": item.AvailableUnits},
+			}
+	
+			_, err = itemsCollection.UpdateOne(context.TODO(), bson.M{"name": itemName}, update)
+			if err != nil {
+				log.Printf("Error updating item: %v", err)
+			}
+		}
     }
 
-	fmt.Println("Waiting for messages...")
-
+    fmt.Println("Waiting for messages...")
 }
-
 
